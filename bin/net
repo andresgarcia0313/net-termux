@@ -1,0 +1,22 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""net status: la red del teléfono. El resto de subcomandos va al `net` de Samba."""
+import os, sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "lib"))
+SAMBA = "/data/data/com.termux/files/usr/bin/net"
+HELP = """Uso: net status [--json]        Wi-Fi, Internet, Tailscale y equipos de la red
+     net tailscale [-v|--json]  Equipos de la VPN (igual que `tailscale status`)
+     net <otro>                 Se pasa al `net` de Samba"""
+
+args = sys.argv[1:]
+if args[:1] in (["status"], ["st"]):
+    from netkit import netstatus
+    sys.exit(netstatus.main(args[1:]))
+if args[:1] in (["tailscale"], ["ts"]):
+    from netkit import tsstatus
+    sys.exit(tsstatus.main(args[1:]))
+if not args or args[0] in ("-h", "--help", "help"):
+    print(HELP)
+    sys.exit(0)
+os.execv(SAMBA, [SAMBA] + args)

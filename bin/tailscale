@@ -1,0 +1,23 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""tailscale en Termux: la app de Android no trae CLI; esto cubre `status` e `ip`."""
+import os, sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "lib"))
+HELP = """Uso: tailscale status [-v|--json]   Equipos de la tailnet con latencia desde aquí
+     tailscale ip                    IP de Tailscale de este teléfono
+La conexión se enciende y apaga en la app de Tailscale."""
+
+args = sys.argv[1:]
+cmd = args[0] if args else "status"
+if cmd == "status":
+    from netkit import tsstatus
+    sys.exit(tsstatus.main(args[1:]))
+if cmd == "ip":
+    from netkit import link
+    ip = link.ifaddr("tun0")
+    print(ip or "Tailscale está apagado en este teléfono.", file=sys.stdout if ip else sys.stderr)
+    sys.exit(0 if ip else 1)
+print(HELP if cmd in ("-h", "--help", "help") else f"«{cmd}» no está disponible en el teléfono.\n\n{HELP}",
+      file=sys.stdout if cmd in ("-h", "--help", "help") else sys.stderr)
+sys.exit(0 if cmd in ("-h", "--help", "help") else 2)
