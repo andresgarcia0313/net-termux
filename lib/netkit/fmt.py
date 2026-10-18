@@ -35,3 +35,8 @@ def span(iso):
         if a < limit:
             n = max(int(a // div), 1)
             return f"{'en' if s > 0 else 'hace'} {n} {one if n == 1 else many}"
+
+
+def ago(seconds):
+    m = int(seconds // 60)
+    return f"hace {m} min" if m < 120 else f"hace {m // 60} h" if m < 2880 else f"hace {m // 1440} días"

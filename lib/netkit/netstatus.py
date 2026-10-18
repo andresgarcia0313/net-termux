@@ -2,7 +2,7 @@
 import json, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
-from . import gather, link, tsdata, tsstatus, ui
+from . import gather, link, tsdata, tsstate, ui
 from .fmt import num
 
 
@@ -37,7 +37,7 @@ def show_link(info, me_ts):
         ui.line("warn" if slow else "ok", f"Internet · {ui.ms(net['ping'], 60, 150)} · {dns}",
                 " · ".join(x for x in (isp(pub.get("org", "")), pub.get("city", ""), pub.get("ip", "")) if x))
     if info["tun0"]:
-        note = tsstatus.key_note(me_ts or {})
+        note = tsstate.key_note(me_ts or {})
         ui.line(note[0] if note else "ok", f"Tailscale · {info['tun0']}" + (f" · {note[1]}" if note else ""),
                 "tailscale status → equipos de la VPN")
     else:

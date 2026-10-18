@@ -1,89 +1,75 @@
-"""`tailscale status` en Termux: la tailnet con latencia medida desde el teléfono."""
-import json, os, sys
+"""`tailscale status` en Termux: equipos e IP de la tailnet, medidos desde el teléfono."""
+import json, sys, time
+from concurrent.futures import ThreadPoolExecutor
 
-from . import names, probe, tsdata, ui
-from .fmt import seconds_from_now, size, span
+from . import names, tsapi, tsdata, tslive, ui
+from .fmt import ago
+from .tsstate import ipv4, key_note, state_of
 
-KEY_WARN_DAYS = 30
-
-
-def key_note(node):
-    """(estado, texto) del vencimiento de la clave, o None si no preocupa."""
-    s = seconds_from_now(node.get("KeyExpiry") or "")
-    if s is None or s > KEY_WARN_DAYS * 86400:
-        return None
-    return ("bad", "clave vencida") if s <= 0 else ("warn", f"la clave vence {span(node['KeyExpiry'])}")
+HELP_API = "Para la lista completa sin otro equipo: crea un cliente OAuth de solo lectura (README)."
 
 
-def show_me(ip, me, data):
-    ui.title("Tailscale", data.get("MagicDNSSuffix", ""))
+def show_me(ip, me, tailnet):
+    ui.title("Tailscale", tailnet)
     if not ip:
-        ui.line("off", "Apagado en este teléfono", "Actívalo en la app de Tailscale para entrar a los equipos.")
+        ui.line("off", "Apagado en este teléfono", "Actívalo en la app de Tailscale.")
         return
-    ui.line("me", f"Este teléfono · {tsdata.short(me) if me else ''} · {ip}".replace(" ·  ·", " ·"))
+    ui.line("me", "Este teléfono" + (f" · {me['name']}" if me else ""))
+    v6 = next((a for a in (me or {}).get("ips", []) if ":" in a), "")
+    print(f"  {ui.paint(ip, 'bold')}" + (ui.paint(f" · {v6}", "dim") if v6 else ""))
     note = key_note(me or {})
     if note:
-        ui.line(note[0], note[1][0].upper() + note[1][1:], "Renuévala en login.tailscale.com › Machines.")
+        ui.line(note[0], note[1].capitalize(), "Renuévala en login.tailscale.com › Machines.")
 
 
-def peer_row(n, lat, name_w, cols, verbose, source):
-    online = n.get("Online")
-    note = key_note(n)
-    if online:
-        state, right = ("warn" if note else "ok"), ui.ms(lat, 60, 200)
-    else:
-        state, right = ("bad" if note and note[0] == "bad" else "off"), ui.paint(
-            f"{'desconectado' if cols >= 64 else 'visto'} {span(n.get('LastSeen', ''))}".strip(), "dim")
-    ip4 = next((a for a in n.get("TailscaleIPs", []) if "." in a), "")
-    kind = names.TS_OS.get(n.get("OS", ""), n.get("OS", "").capitalize())
-    row = f"{ui.mark(state)} {ui.fit(tsdata.short(n), name_w)}  "
-    row += (f"{ui.paint(ui.fit(ip4, 15), 'dim')} " if cols >= 64 else "") + f"{ui.fit(kind, 8)} {right}"
-    print(row)
-    extra = [note[1]] if note else []
-    if n.get("ExitNode"):
+def show_peer(p, live, fresh, name_w, cols, verbose):
+    ms, tcp = live[0].get(ipv4(p)), ipv4(p) in live[1]
+    state, right, online = state_of(p, ms, tcp, fresh, cols >= 64)
+    kind = names.TS_OS.get(p["os"], p["os"].capitalize())
+    row = f"{ui.mark(state)} {ui.fit(p['name'], name_w)}  {ui.fit(ipv4(p) or '—', 15)} "
+    print(row + (f"{ui.fit(kind, 8)} " if cols >= 64 else "") + right)
+    extra = [key_note(p)[1]] if key_note(p) else []
+    if p.get("exit_node"):
         extra.append("nodo de salida en uso")
-    if verbose and online and (n.get("RxBytes") or n.get("TxBytes")):
-        extra.append(f"tráfico con {source}: ↓ {size(n['RxBytes'])} ↑ {size(n['TxBytes'])}")
+    if verbose:
+        extra += [a for a in p["ips"] if ":" in a]
+        if p.get("version"):
+            extra.append(f"v{p['version']}" + (" (hay actualización)" if p.get("update") else ""))
     if extra:
         print("  " + ui.paint(" · ".join(extra), "dim"))
+    return online
 
 
 def main(argv):
     verbose = "-v" in argv or "--verbose" in argv
     with ui.Wait("Consultando la tailnet…"):
-        data, source, age = tsdata.fetch()
-    if not data:
-        hosts = tsdata.sources()
-        if not hosts:
-            ui.line("warn", "Falta un equipo con el CLI de Tailscale",
-                    f"Escribe su nombre SSH en {tsdata.CONFIG.replace(os.path.expanduser('~'), '~')} (uno por línea).")
-        else:
-            ui.line("bad", "No pude leer el estado de Tailscale",
-                    f"Ninguno contestó por SSH: {', '.join(hosts)}. Prueba: ssh {hosts[0]} tailscale status")
-        return 1
+        data, fresh = tsdata.fetch()
     if "--json" in argv:
-        json.dump(data, sys.stdout, indent=2)
+        json.dump(data or {}, sys.stdout, indent=2, ensure_ascii=False)
         print()
-        return 0
+        return 0 if data else 1
     ip, me = tsdata.me(data)
-    show_me(ip, me, data)
-    peers = [n for n in tsdata.nodes(data) if n is not me]
-    online = [n for n in peers if n.get("Online")]
-    targets = {n["TailscaleIPs"][0]: n for n in online if ip and n.get("TailscaleIPs")}
-    with ui.Wait("Midiendo latencia desde el teléfono…"):
-        lat = probe.sweep(list(targets), wait=1.5)
-    peers.sort(key=lambda n: (not n.get("Online"), tsdata.short(n).lower()))
-    ui.title("Equipos", f"{len(online)} de {len(peers)} en línea")
+    show_me(ip, me, (data or {}).get("tailnet", ""))
+    if not data:
+        ui.line("warn", "Aún no conozco los demás equipos", HELP_API)
+        return 1
+    peers = sorted((p for p in data["peers"] if p is not me), key=lambda p: p["name"].lower())
+    targets = [ipv4(p) for p in peers if ipv4(p)] if ip else []
+    with ui.Wait("Midiendo desde el teléfono…"), ThreadPoolExecutor(2) as ex:
+        live_f = ex.submit(tslive.measure, targets)
+        dns = ex.submit(tslive.names, targets).result() if not fresh and targets else {}
+        live = live_f.result()
+    for p in peers:
+        p["name"] = dns.get(ipv4(p), "").split(".")[0] or p["name"]
     cols = ui.width()
-    name_w = min(max(len(tsdata.short(n)) for n in peers), 20 if cols >= 60 else 16)
-    for n in peers:
-        first = (n.get("TailscaleIPs") or [""])[0]
-        peer_row(n, lat.get(first, (None, 0))[0], name_w, cols, verbose, source)
-    when = "ahora" if age < 60 else f"guardado {span_secs(age)}"
-    print("\n" + ui.paint(f"Datos vistos desde {source} ({when}) · latencia medida desde aquí", "dim"))
+    name_w = min(max(len(p["name"]) for p in peers), 20 if cols >= 64 else 14)
+    reach = [p for p in peers if ipv4(p) in live[0] or ipv4(p) in live[1] or (fresh and p["online"])]
+    ui.title("Equipos", f"{len(reach)} de {len(peers)} en línea")
+    for p in sorted(peers, key=lambda p: p not in reach):
+        show_peer(p, live, fresh, name_w, cols, verbose)
+    age = time.time() - data.get("at", 0)
+    origin = f"{data['source']} (ahora)" if fresh else f"copia guardada {ago(age)}"
+    print("\n" + ui.paint(f"Lista: {origin} · estado medido desde aquí", "dim"))
+    if not fresh and not tsapi.credentials():
+        print(ui.paint(HELP_API, "dim"))
     return 0
-
-
-def span_secs(age):
-    m = int(age // 60)
-    return f"hace {m} min" if m < 120 else f"hace {m // 60} h"

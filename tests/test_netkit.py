@@ -3,7 +3,8 @@ import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 os.environ["NO_COLOR"] = "1"
 
-from netkit import fmt, link, names, netstatus, tsdata, tsstatus, ui  # noqa: E402
+from netkit import fmt, link, names, netstatus, tsdata, ui
+from netkit import tsstate as tsstatus  # noqa: E402
 
 
 def test_fmt_es_co():
@@ -45,15 +46,17 @@ def test_isp_is_readable():
 
 
 def test_key_note():
-    assert tsstatus.key_note({"KeyExpiry": "2000-01-01T00:00:00Z"}) == ("bad", "clave vencida")
-    assert tsstatus.key_note({"KeyExpiry": "2999-01-01T00:00:00Z"}) is None
+    assert tsstatus.key_note({"key_expiry": "2000-01-01T00:00:00Z"}) == ("bad", "clave vencida")
+    assert tsstatus.key_note({"key_expiry": "2999-01-01T00:00:00Z"}) is None
     assert tsstatus.key_note({}) is None
 
 
 def test_lan_names_from_curaddr_and_self_addrs():
     data = {"Self": {"DNSName": "nas.example.ts.net.", "OS": "linux", "Addrs": ["192.168.1.17:41641"]},
-            "Peer": {"a": {"HostName": "laptop", "OS": "linux", "CurAddr": "192.168.1.16:41641"}}}
-    assert tsdata.lan_names(data) == {"192.168.1.17": ("nas", "linux"), "192.168.1.16": ("laptop", "linux")}
+            "Peer": {"a": {"HostName": "laptop", "OS": "linux", "CurAddr": "192.168.1.31:41641"}}}
+    norm = tsdata.from_status(data, "nas por SSH")
+    assert tsdata.lan_names(norm) == {"192.168.1.17": ("nas", "linux"), "192.168.1.31": ("laptop", "linux")}
+    assert [p["online"] for p in norm["peers"]] == [True, False]
     assert tsdata.lan_names(None) == {}
 
 

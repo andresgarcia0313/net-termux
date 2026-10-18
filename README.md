@@ -28,7 +28,8 @@ Medido en 4,7 s
 $ tailscale status
 
 Tailscale · ejemplo.ts.net
-◆ Este teléfono · mi-telefono · 100.64.0.10
+◆ Este teléfono · mi-telefono
+  100.64.0.10 · fd7a:115c:a1e0::a
 
 Equipos · 3 de 4 en línea
 ● nas         100.64.0.20   Linux    16 ms
@@ -37,7 +38,7 @@ Equipos · 3 de 4 en línea
   la clave vence en 12 días
 ○ tablet      100.64.0.55   Android  desconectado hace 2 meses
 
-Datos vistos desde nas (ahora) · latencia medida desde aquí
+Lista: API de Tailscale (ahora) · estado medido desde aquí
 ```
 
 ## Instalar
@@ -48,7 +49,7 @@ En Termux, un solo comando:
 curl -fsSL https://raw.githubusercontent.com/andresgarcia0313/net-termux/main/install.sh | bash
 ```
 
-Instala lo que falte (`python`, `git`, `openssh`, `termux-api`), descarga el proyecto en
+Instala lo que falte (`python`, `git`, `termux-api`), descarga el proyecto en
 `~/.local/share/net-termux` y deja los comandos en `~/.local/bin`. Para ver la señal Wi-Fi
 instala también la app **Termux:API** (F-Droid o Google Play), de la misma tienda que Termux.
 
@@ -64,9 +65,9 @@ curl -fsSL https://raw.githubusercontent.com/andresgarcia0313/net-termux/main/in
 |---|---|
 | `net status` | Wi-Fi, router, Internet (latencia, DNS, proveedor, IP pública), Tailscale y equipos de la red |
 | `net status --json` | Lo mismo en JSON, para otros programas |
-| `tailscale status` | Equipos de tu tailnet, en línea o no, con latencia medida desde el teléfono |
-| `tailscale status -v` | Además, el tráfico de cada equipo con el equipo que respondió |
-| `tailscale status --json` | El JSON original de `tailscale status --json` |
+| `tailscale status` | Equipos de tu tailnet con su IP, en línea o no, latencia medida desde el teléfono |
+| `tailscale status -v` | Además, la IPv6 y la versión de Tailscale de cada equipo |
+| `tailscale status --json` | La lista normalizada en JSON |
 | `tailscale ip` | La IP de Tailscale del teléfono |
 | `net tailscale` | Igual que `tailscale status` |
 | `net <otra cosa>` | Pasa al `net` de Samba si lo tienes instalado |
@@ -83,23 +84,44 @@ El estado nunca va solo en color: cada símbolo tiene forma propia y va con una 
 | ○ | Apagado, desconectado o sin respuesta al ping |
 | ◆ | Este teléfono |
 
-## Configurar `tailscale status`
+## Cómo obtiene `tailscale status` la lista
 
-La app de Tailscale para Android no trae línea de comandos. Por eso `tailscale status`
-le pide el estado, por SSH, a un equipo tuyo que sí tenga el CLI (un servidor, un
-portátil, una Raspberry Pi) y mide la latencia desde el teléfono.
+La app de Tailscale para Android no trae línea de comandos, y **no hace falta otro equipo**:
 
-1. Asegúrate de entrar sin contraseña: `ssh mi-servidor tailscale status` debe funcionar
-   (con clave SSH, `ssh-copy-id mi-servidor`).
-2. Escribe el nombre en la configuración, uno por línea, en orden de preferencia:
+| Fuente | Qué aporta | Necesita |
+|---|---|---|
+| Medición en vivo | En línea o no y latencia de cada IP, medidas por el túnel desde el teléfono; nombre vigente de cada IP según MagicDNS (`100.100.100.100`) | Tailscale encendido en el teléfono |
+| API de Tailscale | La lista completa y al día: equipos nuevos, desconectados, sistema, versión, vencimiento de claves | Una credencial de solo lectura (abajo) e Internet |
+| Copia local | La última lista conocida, para trabajar sin Internet | Haber leído la lista una vez |
+| SSH (opcional) | `tailscale status --json` de un equipo tuyo con el CLI | Acceso SSH sin contraseña |
+
+Cada vez que una fuente da la lista, se guarda en `~/.cache/net-termux/tailnet.json`. Sin
+credencial ni SSH, `tailscale status` sigue funcionando con esa copia y la medición en vivo,
+pero no verá equipos nuevos hasta la siguiente lectura completa.
+
+### Credencial de la API (una vez, 1 minuto)
+
+Recomendado: un **cliente OAuth de solo lectura**, que no vence.
+
+1. Entra a <https://login.tailscale.com/admin/settings/oauth> y pulsa **Generate OAuth client**.
+2. Marca solo **Devices › Core › Read** y genera. Copia el *Client ID* y el *Client secret*.
+3. En Termux:
 
 ```bash
 mkdir -p ~/.config/net-termux
-printf 'mi-servidor\nmi-portatil\n' > ~/.config/net-termux/tailscale-hosts
+printf '%s %s\n' 'CLIENT_ID' 'CLIENT_SECRET' > ~/.config/net-termux/tailscale-api
+chmod 600 ~/.config/net-termux/tailscale-api
+tailscale status
 ```
 
-Si ninguno contesta, se muestra la última copia guardada (`~/.cache/net-termux/`) con su
-antigüedad. También puedes usar la variable `NET_TERMUX_TS_HOSTS="mi-servidor mi-portatil"`.
+También sirve una llave de API (`tskey-api-...`, vence a los 90 días como máximo) sola en
+ese fichero, o las variables `TS_OAUTH_CLIENT_ID` y `TS_OAUTH_CLIENT_SECRET`, o `TS_API_KEY`.
+El token de acceso de 1 hora se guarda en `~/.cache/net-termux/` con permisos 600.
+
+### SSH (opcional)
+
+Si prefieres no crear credencial, escribe en `~/.config/net-termux/tailscale-hosts` el nombre
+SSH de un equipo con el CLI de Tailscale (uno por línea) o usa `NET_TERMUX_TS_HOSTS`.
 
 ## Cómo funciona sin root
 
@@ -111,7 +133,8 @@ Android no deja leer la tabla ARP ni la de rutas, así que no hay MAC ni fabrica
 - **Nombres:** Tailscale, mDNS (Avahi, Bonjour), DNS del router y NetBIOS (Windows, Samba).
 - **Tipo de equipo:** por Tailscale, por los puertos abiertos y por el TTL.
 - **Router:** el `.1` o el `.254` que responde DNS.
-- **Proveedor e IP pública:** una consulta a `ipinfo.io`. Es la única salida a Internet.
+- **Proveedor e IP pública:** una consulta a `ipinfo.io`. Con la API de Tailscale configurada,
+  `tailscale status` consulta también `api.tailscale.com`. No hay más salidas a Internet.
 - **Sin procesos en lote:** todo corre en hilos de un solo proceso; Android cierra Termux
   cuando una app crea demasiados procesos.
 
@@ -134,7 +157,8 @@ python3 -m pytest -q tests
 ```
 
 Módulos en `lib/netkit/`: `probe` (ICMP y TCP), `mdns`, `names`, `link` (Wi-Fi, router,
-Internet), `tsdata` (estado de Tailscale), `gather`, `netstatus`, `tsstatus`, `ui` y `fmt`.
+Internet), `tsapi` (API de Tailscale), `tsdata` (fuentes y copia), `tslive` (medición por el
+túnel), `tsstate`, `gather`, `netstatus`, `tsstatus`, `ui` y `fmt`.
 
 Hermano para Linux: [net-status](https://github.com/andresgarcia0313/net-status).
 
@@ -148,6 +172,7 @@ the one-liner above, then run `net status`. Output is in Spanish.
 | Versión | Fecha | Cambio |
 |---|---|---|
 | 1.0.0 | 2026-10-18 | Primera versión pública |
+| 1.1.0 | 2026-10-18 | `tailscale status` sin depender de otro equipo (API, copia local y medición en vivo por el túnel); la IP se muestra en cualquier ancho |
 
 ## Licencia
 

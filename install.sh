@@ -7,7 +7,7 @@ set -euo pipefail
 REPO="${NET_TERMUX_REPO:-https://github.com/andresgarcia0313/net-termux.git}"
 DIR="${NET_TERMUX_DIR:-$HOME/.local/share/net-termux}"
 BIN="$HOME/.local/bin"
-CONF="$HOME/.config/net-termux/tailscale-hosts"
+CONF="$HOME/.config/net-termux/tailscale-api"
 
 say()  { printf '\033[36m●\033[0m %s\n' "$*"; }
 ok()   { printf '\033[32m●\033[0m %s\n' "$*"; }
@@ -30,7 +30,6 @@ uninstall() {
 need=()
 command -v python3 >/dev/null || need+=(python)
 command -v git >/dev/null || need+=(git)
-command -v ssh >/dev/null || need+=(openssh)
 command -v termux-wifi-connectioninfo >/dev/null || need+=(termux-api)
 if [ ${#need[@]} -gt 0 ]; then
   say "Instalando paquetes: ${need[*]}"
@@ -65,6 +64,6 @@ esac
 
 "$DIR/bin/net" --help >/dev/null || fail "La instalación no arranca: revisa que python3 funcione."
 ok "Listo. Prueba:  net status"
-[ -f "$CONF" ] || say "Para 'tailscale status' escribe en $CONF el nombre SSH de un equipo con el CLI de Tailscale."
+[ -f "$CONF" ] || say "Para la lista completa en 'tailscale status', crea la credencial de solo lectura (README, 1 minuto)."
 command -v termux-wifi-connectioninfo >/dev/null && say "Para ver la señal Wi-Fi instala también la app Termux:API (F-Droid o Google Play)."
 exit 0
